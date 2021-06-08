@@ -50,8 +50,8 @@ setup_file() {
 
 	wait_for_smtp_port_in_container mail
 
-  # wait for clamav to be fully setup or we will get errors on the log
-  repeat_in_container_until_success_or_timeout 60 mail test -e /var/run/clamav/clamd.ctl
+  # wait for clamav to be fully setup or we will get errors on the log (on some systems up to 2.5 minutes is required to complete)
+  repeat_in_container_until_success_or_timeout 150 mail test -e /var/run/clamav/clamd.ctl
 
   # sending test mails
 	docker exec mail /bin/sh -c "nc 0.0.0.0 25 < /tmp/docker-mailserver-test/email-templates/amavis-spam.txt"
