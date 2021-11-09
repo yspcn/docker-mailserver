@@ -1,3 +1,6 @@
+# 中文安装教程
+https://www.treesir.pub/post/docker-deploy-mailserver/
+
 # Docker Mailserver
 
 [![ci::status]][ci::github] [![docker::pulls]][docker::hub] [![documentation::badge]][documentation::web]
