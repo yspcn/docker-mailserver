@@ -8,9 +8,9 @@ Fail2Ban is installed automatically and bans IP addresses for 3 hours after 3 fa
 
 ## Configuration files
 
-If you want to change this, you can easily edit our github example file: [`config/fail2ban-jail.cf`][github-file-f2bjail].
+If you want to change this, you can easily edit our github example file: [`config-examples/fail2ban-jail.cf`][github-file-f2bjail].
 
-You can do the same with the values from `fail2ban.conf`, e.g `dbpurgeage`. In that case you need to edit: [`config/fail2ban-fail2ban.cf`][github-file-f2bconfig].
+You can do the same with the values from `fail2ban.conf`, e.g `dbpurgeage`. In that case you need to edit: [`config-examples/fail2ban-fail2ban.cf`][github-file-f2bconfig].
 
 The configuration files need to be located at the root of the `/tmp/docker-mailserver/` volume bind (usually `./docker-data/dms/config/:/tmp/docker-mailserver/`).
 
@@ -29,7 +29,7 @@ Example configuration volume bind:
 ```
 
 !!! attention
-    `docker-mailserver` must be launched with the `NET_ADMIN` capability in order to be able to install the iptable rules that actually ban IP addresses.
+    `docker-mailserver` must be launched with the `NET_ADMIN` capability in order to be able to install the nftables rules that actually ban IP addresses.
 
     Thus either include `--cap-add=NET_ADMIN` in the `docker run` command, or the equivalent in `docker-compose.yml`:
 
@@ -37,16 +37,6 @@ Example configuration volume bind:
     cap_add:
       - NET_ADMIN
     ```
-
-If you don't you will see errors the form of:
-
-```log
-iptables -w -X f2b-postfix -- stderr: "getsockopt failed strangely: Operation not permitted\niptables v1.4.21: can't initialize iptabl
-es table `filter': Permission denied (you must be root)\nPerhaps iptables or your kernel needs to be upgraded.\niptables v1.4.21: can'
-t initialize iptables table `filter': Permission denied (you must be root)\nPerhaps iptables or your kernel needs to be upgraded.\n"
-2016-06-01 00:53:51,284 fail2ban.action         [678]: ERROR   iptables -w -D INPUT -p tcp -m multiport --dports smtp,465,submission -
-j f2b-postfix
-```
 
 ## Running fail2ban in a rootless container
 
@@ -107,7 +97,7 @@ You can also manage and list the banned IPs with the [`setup.sh`][docs-setupsh] 
 ### List bans
 
 ```sh
-./setup.sh debug fail2ban
+./setup.sh fail2ban
 ```
 
 ### Un-ban
@@ -115,15 +105,15 @@ You can also manage and list the banned IPs with the [`setup.sh`][docs-setupsh] 
 Here `192.168.1.15` is our banned IP.
 
 ```sh
-./setup.sh debug fail2ban unban 192.168.1.15
+./setup.sh fail2ban unban 192.168.1.15
 ```
 
 [docs-setupsh]: ../setup.sh.md
-[github-file-f2bjail]: https://github.com/docker-mailserver/docker-mailserver/blob/master/config/fail2ban-jail.cf
-[github-file-f2bconfig]: https://github.com/docker-mailserver/docker-mailserver/blob/master/config/fail2ban-fail2ban.cf
+[github-file-f2bjail]: https://github.com/docker-mailserver/docker-mailserver/blob/master/config-examples/fail2ban-jail.cf
+[github-file-f2bconfig]: https://github.com/docker-mailserver/docker-mailserver/blob/master/config-examples/fail2ban-fail2ban.cf
 [rootless::rootless-kit]: https://github.com/rootless-containers/rootlesskit
 [rootless::port-drivers]: https://github.com/rootless-containers/rootlesskit/blob/v0.14.5/docs/port.md#port-drivers
 [rootless::slirp4netns]: https://github.com/rootless-containers/slirp4netns
 [rootless::docker]: https://docs.docker.com/engine/security/rootless
-[rootless:podman]: https://github.com/containers/podman/blob/v3.4.1/docs/source/markdown/podman-run.1.md#--networkmode---net
-[rootless:podman::interface]: https://github.com/containers/podman/blob/v3.4.1/libpod/networking_slirp4netns.go#L264
+[rootless::podman]: https://github.com/containers/podman/blob/v3.4.1/docs/source/markdown/podman-run.1.md#--networkmode---net
+[rootless::podman::interface]: https://github.com/containers/podman/blob/v3.4.1/libpod/networking_slirp4netns.go#L264

@@ -17,6 +17,9 @@ concurrency:
 # `pull_request` workflow is unreliable alone: Non-collaborator contributions lack access to secrets for security reasons.
 # A separate workflow (docs-preview-deploy.yml) handles the deploy after the potentially untrusted code is first run in this workflow.
 # See: https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+permissions:
+  contents: read
+
 jobs:
   prepare-preview:
     name: 'Build Preview'
@@ -26,7 +29,7 @@ jobs:
       NETLIFY_SITE_PREFIX: pullrequest-${{ github.event.pull_request.number }}
       NETLIFY_SITE_NAME: dms-doc-previews
     steps:
-      - uses: actions/checkout@v2.3.4
+      - uses: actions/checkout@v3
 
       - name: 'Build with mkdocs-material via Docker'
         working-directory: docs
@@ -53,18 +56,24 @@ jobs:
       # Minimize risk of upload failure by bundling files to a single compressed archive (tar + zstd).
       # Bundles build dir and env file into a compressed archive, nested file paths will be preserved.
       - name: 'Prepare artifact for transfer'
+        env:
+          # As a precaution, reference this value by an interpolated ENV var;
+          # instead of interpolating user controllable input directly in the shell script..
+          # https://github.com/docker-mailserver/docker-mailserver/issues/2332#issuecomment-998326798
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           # Save ENV for transfer
-          echo "PR_HEADSHA=${{ github.event.pull_request.head.sha }}" >> pr.env
-          echo "PR_NUMBER=${{ github.event.pull_request.number }}"    >> pr.env
-          echo "PR_TITLE=${{ github.event.pull_request.title }}"      >> pr.env
-          echo "NETLIFY_SITE_PREFIX=${{ env.NETLIFY_SITE_PREFIX }}"   >> pr.env
-          echo "BUILD_DIR=${{ env.BUILD_DIR }}"                       >> pr.env
-
+          {
+            echo "PR_HEADSHA=${{ github.event.pull_request.head.sha }}"
+            echo "PR_NUMBER=${{ github.event.pull_request.number }}"
+            echo "PR_TITLE=${PR_TITLE}"
+            echo "NETLIFY_SITE_PREFIX=${{ env.NETLIFY_SITE_PREFIX }}"
+            echo "BUILD_DIR=${{ env.BUILD_DIR }}"
+          } >> pr.env
           tar --zstd -cf artifact.tar.zst pr.env ${{ env.BUILD_DIR }}
 
       - name: 'Upload artifact for workflow transfer'
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: preview-build
           path: artifact.tar.zst

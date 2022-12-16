@@ -12,7 +12,12 @@ Podman is a daemonless container engine for developing, managing, and running OC
 
 !!! warning "About this Guide"
 
-    This guide was tested with Fedora 34 using `systemd` and `firewalld`. Moreover, it requires Podman version >= 3.2. You may be able to substitute `dnf` - Fedora's package maneger - with others such as `apt`.
+    This guide was tested with Fedora 34 using `systemd` and `firewalld`. Moreover, it requires Podman version >= 3.2. You may be able to substitute `dnf` - Fedora's package manager - with others such as `apt`.
+
+!!! warning "About Security"
+
+    Running podman in rootless mode requires additional modifications in order to keep your mailserver secure.
+    Make sure to read the related documentation.
 
 ## Installation in Rootfull Mode
 
@@ -33,7 +38,7 @@ systemctl enable --now podman.socket
 This will create a unix socket locate under `/run/podman/podman.sock`, which is the entrypoint of Podman's API. Now, configure docker-mailserver and start it.
 
 ```bash
-export DOCKER_HOST="unix:/run/podman/podman.sock"
+export DOCKER_HOST="unix:///run/podman/podman.sock"
 docker-compose up -d mailserver
 docker-compose ps
 ```
@@ -56,6 +61,7 @@ Running rootless containers is one of Podman's major features. But due to some r
 
 - a rootless container is running in a user namespace so you cannot bind ports lower than 1024
 - a rootless container's systemd file can only be placed in folder under `~/.config`
+- a rootless container can result in an open relay, make sure to read the [security section](#security-in-rootless-mode).
 
 Also notice that Podman's rootless mode is not about running as a non-root user inside the container, but about the mapping of (normal, non-root) host users to root inside the container.
 
@@ -85,10 +91,44 @@ services:
 Then, setup your `mailserver.env` file follow the documentation and use docker-compose to start the container.
 
 ```bash
-export DOCKER_HOST="unix:/var/run/user/1000/podman/podman.sock"
+export DOCKER_HOST="unix:///var/run/user/$(id -u)/podman/podman.sock"
 docker-compose up -d mailserver
 docker-compose ps
 ```
+
+### Security in Rootless Mode
+
+In rootless mode, podman resolves all incoming IPs as localhost, which results in an open gateway in the default configuration. There are two workarounds to fix this problem, both of which have their own drawbacks.
+
+#### Enforce authentication from localhost
+
+The `PERMIT_DOCKER` variable in the `mailserver.env` file allows to specify trusted networks that do not need to authenticate. If the variable is left empty, only requests from localhost and the container IP are allowed, but in the case of rootless podman any IP will be resolved as localhost. Setting `PERMIT_DOCKER=none` enforces authentication also from localhost, which prevents sending unauthenticated emails.
+
+#### Use the slip4netns network driver
+
+The second workaround is slightly more complicated because the `docker-compose.yml` has to be modified.
+As shown in the [fail2ban section](https://docker-mailserver.github.io/docker-mailserver/edge/config/security/fail2ban/#podman-with-slirp4netns-port-driver) the `slirp4netns` network driver has to be enabled.
+This network driver enables podman to correctly resolve IP addresses but it is not compatible with
+user defined networks which might be a problem depending on your setup.
+
+[Rootless Podman][rootless::podman] requires adding the value `slirp4netns:port_handler=slirp4netns` to the `--network` CLI option, or `network_mode` setting in your `docker-compose.yml`.
+
+You must also add the ENV `NETWORK_INTERFACE=tap0`, because Podman uses a [hard-coded interface name][rootless::podman::interface] for `slirp4netns`.
+
+!!! example
+
+    ```yaml
+    services:
+      mailserver:
+        network_mode: "slirp4netns:port_handler=slirp4netns"
+        environment:
+          - NETWORK_INTERFACE=tap0
+          ...
+    ```
+
+!!! note
+
+    `podman-compose` is not compatible with this configuration.
 
 ### Self-start in Rootless Mode
 
@@ -130,3 +170,6 @@ firewall-cmd --reload
 ```
 
 Just map all the privilege port with non-privilege port you set in docker-compose.yml before as root user.
+
+[rootless::podman]: https://github.com/containers/podman/blob/v3.4.1/docs/source/markdown/podman-run.1.md#--networkmode---net
+[rootless::podman::interface]: https://github.com/containers/podman/blob/v3.4.1/libpod/networking_slirp4netns.go#L264

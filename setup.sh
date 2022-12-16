@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/bin/bash
 
 # version   v1.0.0
 # executed  manually / via Make
@@ -9,7 +9,7 @@ CONTAINER_NAME=
 CRI=
 DEFAULT_CONFIG_PATH=
 DESIRED_CONFIG_PATH=
-DIR="$(pwd)"
+DIR=$(pwd)
 DMS_CONFIG='/tmp/docker-mailserver'
 IMAGE_NAME=
 DEFAULT_IMAGE_NAME='docker.io/mailserver/docker-mailserver:latest'
@@ -19,34 +19,18 @@ USE_SELINUX=
 USE_TTY=
 VOLUME=
 
-RED="\e[31m\e[1m"
-WHITE="\e[37m"
-ORANGE="\e[38;5;214m"
-LBLUE="\e[94m"
-RESET="\e[0m"
+WHITE=$(echo -ne '\e[37m')
+ORANGE=$(echo -ne '\e[38;5;214m')
+LBLUE=$(echo -ne '\e[94m')
+RESET=$(echo -ne '\e[0m')
 
 set -euEo pipefail
-trap '__err "${BASH_SOURCE}" "${FUNCNAME[0]:-?}" "${BASH_COMMAND:-?}" "${LINENO:-?}" "${?:-?}"' ERR
-
-function __err
-{
-  [[ ${5} -gt 1 ]] && exit 1
-
-  local ERR_MSG="\n--- ${RED}UNCHECKED ERROR${RESET}"
-  ERR_MSG+="\n  - script    = ${1}"
-  ERR_MSG+="\n  - function  = ${2}"
-  ERR_MSG+="\n  - command   = ${3}"
-  ERR_MSG+="\n  - line      = ${4}"
-  ERR_MSG+="\n  - exit code = ${5}"
-  ERR_MSG+='\n\nThis should not have happened. Please file a bug report.\n'
-
-  echo -e "${ERR_MSG}"
-}
+shopt -s inherit_errexit 2>/dev/null || true
 
 function _show_local_usage
 {
   # shellcheck disable=SC2059
-  printf "${ORANGE}OPTIONS${RESET}
+  printf '%s' "${ORANGE}OPTIONS${RESET}
     ${LBLUE}Config path, container or image adjustments${RESET}
         -i IMAGE_NAME
             Provides the name of the 'docker-mailserver' image. The default value is
@@ -77,7 +61,7 @@ function _show_local_usage
   [[ ${1:-} == 'no-exit' ]] && return 0
 
   # shellcheck disable=SC2059
-  printf "${ORANGE}EXIT STATUS${RESET}
+  printf '%s' "${ORANGE}EXIT STATUS${RESET}
     Exit status is 0 if the command was successful. If there was an unexpected error, an error
     message is shown describing the error. In case of an error, the script will exit with exit
     status 1.
@@ -87,20 +71,12 @@ function _show_local_usage
 
 function _get_absolute_script_directory
 {
-  if [[ "$(uname)" == 'Darwin' ]]
-  then
-    readlink() {
-      # requires coreutils
-      greadlink "${@:+$@}"
-    }
-  fi
-
   if dirname "$(readlink -f "${0}")" &>/dev/null
   then
-    DIR="$(dirname "$(readlink -f "${0}")")"
+    DIR=$(dirname "$(readlink -f "${0}")")
   elif realpath -e -L "${0}" &>/dev/null
   then
-    DIR="$(realpath -e -L "${0}")"
+    DIR=$(realpath -e -L "${0}")
     DIR="${DIR%/setup.sh}"
   fi
 }
@@ -153,7 +129,7 @@ function _run_in_new_container
 
   ${CRI} run --rm "${USE_TTY}" \
     -v "${CONFIG_PATH}:${DMS_CONFIG}${USE_SELINUX}" \
-    "${IMAGE_NAME}" "${@:+$@}"
+    "${IMAGE_NAME}" "${@}"
 }
 
 function _main
@@ -212,7 +188,7 @@ function _main
   INFO=$(${CRI} ps --no-trunc --format "{{.Image}};{{.Names}}" --filter \
     label=org.opencontainers.image.title="docker-mailserver" | tail -1)
 
-  CONTAINER_NAME=${INFO#*;}
+  [[ -z ${CONTAINER_NAME} ]] && CONTAINER_NAME=${INFO#*;}
   [[ -z ${IMAGE_NAME} ]] && IMAGE_NAME=${INFO%;*}
   if [[ -z ${IMAGE_NAME} ]]
   then
@@ -233,14 +209,15 @@ function _main
 
   if [[ -n ${CONTAINER_NAME} ]]
   then
-    ${CRI} exec "${USE_TTY}" "${CONTAINER_NAME}" setup "${@:+$@}"
+    ${CRI} exec "${USE_TTY}" "${CONTAINER_NAME}" setup "${@}"
   else
-    _run_in_new_container setup "${@:+$@}"
+    _run_in_new_container setup "${@}"
   fi
 
-  [[ ${1} == 'help' ]] && _show_local_usage
+  [[ ${1:-} == 'help' ]] && _show_local_usage
 
   return 0
 }
 
-_main "${@:+$@}"
+[[ -z ${1:-} ]] && set 'help'
+_main "${@}"

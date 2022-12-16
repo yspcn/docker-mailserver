@@ -4,16 +4,12 @@ title: 'FAQ'
 
 ### What kind of database are you using?
 
-None! No database is required. Filesystem is the database.  
-This image is based on config files that can be persisted using Docker volumes, and as such versioned, backed up and so forth.  
+None! No database is required. Filesystem is the database.
+This image is based on config files that can be persisted using bind mounts (default) or Docker volumes, and as such versioned, backed up and so forth.
 
 ### Where are emails stored?
 
 Mails are stored in `/var/mail/${domain}/${username}`. Since `v9.0.0` it is possible to add custom `user_attributes` for each accounts to have a different mailbox configuration (See [#1792][github-issue-1792]).
-
-!!! warning
-
-    You should use a [data volume container](https://medium.com/@ramangupta/why-docker-data-containers-are-good-589b3c6c749e#.uxyrp7xpu) for `/var/mail` to persist data. Otherwise, your data may be lost.
 
 ### How to alter the running `docker-mailserver` instance _without_ relaunching the container?
 
@@ -30,7 +26,7 @@ See [supervisorctl's documentation](http://supervisord.org/running.html#running-
 
 ### How can I sync container with host date/time? Timezone?
 
-Share the host's [`/etc/localtime`](https://www.freedesktop.org/software/systemd/man/localtime.html) with the `docker-mailserver` container, using a Docker volume:  
+Share the host's [`/etc/localtime`](https://www.freedesktop.org/software/systemd/man/localtime.html) with the `docker-mailserver` container, using a Docker volume:
 
 ```yaml
 volumes:
@@ -79,7 +75,7 @@ docker run --rm -it \
   -v "${PWD}/docker-data/dms-backups/:/backup/" \
   --volumes-from mailserver \
   alpine:latest \
-  tar czf "/backup/mail-$(date +%F).tar.gz" /var/mail /var/mail-state /var/logs/mail /tmp/docker-mailserver
+  tar czf "/backup/mail-$(date +%F).tar.gz" /var/mail /var/mail-state /var/log/mail /tmp/docker-mailserver
 
 # delete backups older than 30 days
 find "${PWD}/docker-data/dms-backups/" -type f -mtime +30 -delete
@@ -137,13 +133,15 @@ To use a bare domain (_where the host name is `example.com` and the domain is al
 - From: `mydestination = $myhostname, localhost.$mydomain, localhost`
 - To: `mydestination = localhost.$mydomain, localhost`
 
-Add the latter line to `docker-data/dms/config/postfix-main.cf`. That should work. Without that change there will be warnings in the logs like:
+Add the latter line to `docker-data/dms/config/postfix-main.cf`. If that doesn't work, make sure that `OVERRIDE_HOSTNAME` is blank in your `mailserver.env` file (see [#1731](https://github.com/docker-mailserver/docker-mailserver/issues/1731#issuecomment-753968425)). Without these changes there will be warnings in the logs like:
 
 ```log
 warning: do not list domain example.com in BOTH mydestination and virtual_mailbox_domains
 ```
 
 Plus of course mail delivery fails.
+
+Also you need to define `hostname: example.com` in your docker-compose.yml and don't sepecify the `domainname:` at all.
 
 ### Why are SpamAssassin `x-headers` not inserted into my `subdomain.example.com` subdomain emails?
 
@@ -186,23 +184,25 @@ The following configuration works nicely:
     # This assumes you're having `environment: ONE_DIR=1` in the env-mailserver,
     # with a consolidated config in `/var/mail-state`
     #
+    # '> /dev/null' to send error notifications from 'stderr' to 'postmaster@example.com'
+    #
     # m h dom mon dow user command
     #
     # Everyday 2:00AM, learn spam from a specific user
     # spam: junk directory
-    0  2 * * * root  sa-learn --spam /var/mail/example.com/username/.Junk --dbpath /var/mail-state/lib-amavis/.spamassassin
+    0  2 * * * root  sa-learn --spam /var/mail/example.com/username/.Junk --dbpath /var/mail-state/lib-amavis/.spamassassin > /dev/null
     # ham: archive directories
-    15 2 * * * root  sa-learn --ham /var/mail/example.com/username/.Archive* --dbpath /var/mail-state/lib-amavis/.spamassassin
+    15 2 * * * root  sa-learn --ham /var/mail/example.com/username/.Archive* --dbpath /var/mail-state/lib-amavis/.spamassassin > /dev/null
     # ham: inbox subdirectories
-    30 2 * * * root  sa-learn --ham /var/mail/example.com/username/cur* --dbpath /var/mail-state/lib-amavis/.spamassassin
+    30 2 * * * root  sa-learn --ham /var/mail/example.com/username/cur* --dbpath /var/mail-state/lib-amavis/.spamassassin > /dev/null
     #
     # Everyday 3:00AM, learn spam from all users of a domain
     # spam: junk directory
-    0  3 * * * root  sa-learn --spam /var/mail/not-example.com/*/.Junk --dbpath /var/mail-state/lib-amavis/.spamassassin
+    0  3 * * * root  sa-learn --spam /var/mail/not-example.com/*/.Junk --dbpath /var/mail-state/lib-amavis/.spamassassin > /dev/null
     # ham: archive directories
-    15 3 * * * root  sa-learn --ham /var/mail/not-example.com/*/.Archive* --dbpath /var/mail-state/lib-amavis/.spamassassin
+    15 3 * * * root  sa-learn --ham /var/mail/not-example.com/*/.Archive* --dbpath /var/mail-state/lib-amavis/.spamassassin > /dev/null
     # ham: inbox subdirectories
-    30 3 * * * root  sa-learn --ham /var/mail/not-example.com/*/cur* --dbpath /var/mail-state/lib-amavis/.spamassassin
+    30 3 * * * root  sa-learn --ham /var/mail/not-example.com/*/cur* --dbpath /var/mail-state/lib-amavis/.spamassassin > /dev/null
     ```
 
     Then with `docker-compose.yml`:
@@ -322,13 +322,13 @@ If we're blind, we won't be able to do anything.
 
 ### What system requirements are required to run `docker-mailserver` effectively?
 
-1 core and 1GB of RAM + swap partition is recommended to run `docker-mailserver` with clamav.
+1 core and 1GB of RAM + swap partition is recommended to run `docker-mailserver` with ClamAV.
 Otherwise, it could work with 512M of RAM.
 
 !!! warning
-    Clamav can consume a lot of memory, as it reads the entire signature database into RAM.
+    ClamAV can consume a lot of memory, as it reads the entire signature database into RAM.
 
-    Current figure is about 850M and growing. If you get errors about clamav or amavis failing to allocate memory you need more RAM or more swap and of course docker must be allowed to use swap (not always the case). If you can't use swap at all you may need 3G RAM.
+    Current figure is about 850M and growing. If you get errors about ClamAV or amavis failing to allocate memory you need more RAM or more swap and of course docker must be allowed to use swap (not always the case). If you can't use swap at all you may need 3G RAM.
 
 ### Can `docker-mailserver` run in a Rancher Environment?
 
@@ -427,6 +427,17 @@ sed -i 's/rimap -r/rimap/' /etc/supervisor/conf.d/saslauth.conf
 supervisorctl update
 ```
 
+### How to ban custom IP addresses with Fail2ban
+
+Use the following command:
+
+```bash
+./setup.sh fail2ban ban <IP>
+```
+
+The default bantime is 180 days. This value can be [customized][fail2ban-customize].
+
+[fail2ban-customize]: ./config/security/fail2ban.md
 [docs-maintenance]: ./config/advanced/maintenance/update-and-cleanup.md
 [docs-userpatches]: ./config/advanced/override-defaults/user-patches.md
 [github-issue-95]: https://github.com/docker-mailserver/docker-mailserver/issues/95

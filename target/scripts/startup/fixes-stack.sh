@@ -1,30 +1,24 @@
-#! /bin/bash
+#!/bin/bash
 
-function fix
+function _apply_fixes
 {
-  _notify 'tasklog' 'Post-configuration checks'
+  _log 'info' 'Post-configuration checks'
   for FUNC in "${FUNCS_FIX[@]}"
   do
     ${FUNC}
   done
 
-  _notify 'inf' 'Removing leftover PID files from a stop/start'
+  _log 'trace' 'Removing leftover PID files from a stop/start'
   find /var/run/ -not -name 'supervisord.pid' -name '*.pid' -delete
   touch /dev/shm/supervisor.sock
 }
 
 function _fix_var_mail_permissions
 {
-  _notify 'task' 'Checking /var/mail permissions'
+  _log 'debug' 'Checking /var/mail permissions'
 
-  # fix permissions, but skip this if 3 levels deep the user id is already set
-  if find /var/mail -maxdepth 3 -a \( \! -user 5000 -o \! -group 5000 \) | read -r
-  then
-    _notify 'inf' 'Fixing /var/mail permissions'
-    chown -R 5000:5000 /var/mail || _shutdown 'Failed to fix /var/mail permissions'
-  else
-    _notify 'inf' 'Permissions in /var/mail look OK'
-  fi
+  _chown_var_mail_if_necessary || _shutdown 'Failed to fix /var/mail permissions'
+  _log 'trace' 'Permissions in /var/mail look OK'
 }
 
 function _fix_var_amavis_permissions
@@ -33,18 +27,24 @@ function _fix_var_amavis_permissions
   [[ ${ONE_DIR} -eq 0 ]] && AMAVIS_STATE_DIR="/var/lib/amavis"
   [[ ! -e ${AMAVIS_STATE_DIR} ]] && return 0
 
-  _notify 'inf' 'Fixing Amavis permissions'
+  _log 'trace' 'Fixing Amavis permissions'
   chown -hR amavis:amavis "${AMAVIS_STATE_DIR}" || _shutdown 'Failed to fix Amavis permissions'
 }
 
 function _fix_cleanup_clamav
 {
-  _notify 'task' 'Cleaning up disabled ClamAV'
-  rm /etc/logrotate.d/clamav-* /etc/cron.d/clamav-freshclam || _notify 'err' 'Failed to remove ClamAV configuration'
+  _log 'trace' 'Cleaning up disabled ClamAV'
+  rm /etc/logrotate.d/clamav-* /etc/cron.d/clamav-freshclam 2>/dev/null || {
+    # show warning only on first container start
+    [[ ! -f /CONTAINER_START ]] && _log 'warn' 'Failed to remove ClamAV configuration'
+  }
 }
 
 function _fix_cleanup_spamassassin
 {
-  _notify 'task' 'Cleaning up disabled SpamAssassin'
-  rm /etc/cron.daily/spamassassin || _notify 'err' 'Failed to remove SpamAssassin configuration'
+  _log 'trace' 'Cleaning up disabled SpamAssassin'
+  rm /etc/cron.daily/spamassassin 2>/dev/null || {
+    # show warning only on first container start
+    [[ ! -f /CONTAINER_START ]] && _log 'warn' 'Failed to remove SpamAssassin configuration'
+  }
 }

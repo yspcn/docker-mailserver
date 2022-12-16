@@ -54,7 +54,7 @@ body:
     attributes:
       label:  What happened and when does this occur?
       description: Tell us what happened. Use [fenced code blocks](https://docs.github.com/en/github/writing-on-github/working-with-advanced-formatting/creating-and-highlighting-code-blocks#fenced-code-blocks) when pasting lots of text!
-      placeholder: Although `DMS_DEBUG=1` is set, I see no debug output.
+      placeholder: Although `LOG_LEVEL=debug` is set, I see no debug output.
       render: Markdown
     validations:
       required: true
@@ -99,6 +99,13 @@ body:
         - Other (unsupported)
     validations:
       required: true
+  - type: input
+    id: operating-system-version
+    attributes:
+      label: Which operating system version?
+      placeholder: e.g. Debian 11
+    validations:
+      required: true
   - type: dropdown
     id: isa
     attributes:
@@ -127,34 +134,35 @@ body:
     attributes:
       label: docker-compose.yml
       description: Show us your docker-compose.yml file or your equivalent "docker run" command.
-      render: yaml
+      render: yml
   - type: textarea
     id: relevant-log-output
     attributes:
       label: Relevant log output
-      description: Show us relevant log output here. You can enable debug output by setting the environment variable `DMS_DEBUG` to `1`.
-      render: shell
+      description: Show us relevant log output here. You can enable debug output by setting the environment variable `LOG_LEVEL` to `debug` or `trace`.
+      render: bash
   - type: textarea
     id: other-relevant-information
     attributes:
       label: Other relevant information
       description: If there is more, you can tell us here. Make sure to use Markdown formatting here.
       render: Markdown
-  - type: dropdown
+  - type: checkboxes
     id: experience
     attributes:
       label: What level of experience do you have with Docker and mail servers?
       description: >
         **You are not obliged to answer this question**.
         We do encourage answering though as it provides context to better assist you.
-        Less experienced users tend to make common mistakes, which is ok; by letting us know we can spot those more easily.
-        
+        Less experienced users tend to make common mistakes, which is ok; by letting us know we can spot those more easily. If you are experienced, we can skip basic questions and save time.
+
       options:
-        - I am inexperienced with docker
-        - I am inexperienced with mail servers
-        - I am uncomfortable with the CLI
-    validations:
-      required: false
+        - label: I am inexperienced with docker
+        - label: I am rather experienced with docker
+        - label: I am inexperienced with mail servers
+        - label: I am rather experienced with mail servers
+        - label: I am uncomfortable with the CLI
+        - label: I am rather comfortable with the CLI
   - type: checkboxes
     id: terms-code-of-conduct
     attributes:
@@ -165,9 +173,10 @@ body:
           required: true
         - label: I have read the [README](https://github.com/docker-mailserver/docker-mailserver/blob/master/README.md) and the [documentation](https://docker-mailserver.github.io/docker-mailserver/edge/) and I searched the [issue tracker](https://github.com/docker-mailserver/docker-mailserver/issues?q=is%3Aissue) but could not find a solution
           required: true
-  - type: textarea
+  - type: input
     id: form-improvements
     attributes:
       label: Improvements to this form?
       description: If you have criticism or general feedback about this issue form, feel free to tell us so we can enhance the experience for everyone.
-      render: Markdown
+    validations:
+      required: false

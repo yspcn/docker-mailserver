@@ -12,7 +12,9 @@ https://www.treesir.pub/post/docker-deploy-mailserver/
 [documentation::badge]: https://img.shields.io/badge/DOCUMENTATION-GH%20PAGES-0078D4?style=for-the-badge&logo=git&logoColor=white
 [documentation::web]: https://docker-mailserver.github.io/docker-mailserver/edge/
 
-A fullstack but simple mail-server (SMTP, IMAP, LDAP, Antispam, Antivirus, etc.). Only configuration files, no SQL database. Keep it simple and versioned. Easy to deploy and upgrade. [Documentation][documentation::web] via MkDocs. [Why this image was created](https://tvi.al/simple-mail-server-with-docker/).
+A production-ready fullstack but simple mail server (SMTP, IMAP, LDAP, Antispam, Antivirus, etc.). Only configuration files, no SQL database. Keep it simple and versioned. Easy to [deploy](#usage) and upgrade. [Documentation][documentation::web] via MkDocs.
+
+Originally created by @tomav, docker-mailserver is now maintained by volunteers since January 2021.
 
 If you have issues, read the full `README` **and** the [documentation][documentation::web] **for your version** (default is `edge`) first **before opening an issue**. The issue tracker is for issues, not for personal support.
 
@@ -41,7 +43,7 @@ If you have issues, read the full `README` **and** the [documentation][documenta
 - [LetsEncrypt](https://letsencrypt.org/) and self-signed certificates
 - [Setup script](https://docker-mailserver.github.io/docker-mailserver/edge/config/setup.sh) to easily configure and maintain your mail-server
 - Basic [Sieve support](https://docker-mailserver.github.io/docker-mailserver/edge/config/advanced/mail-sieve) using dovecot
-- SASLauthd with LDAP auth
+- SASLauthd with LDAP auth (please see the note [down below](#ldap-setup))
 - Persistent data and state
 - [CI/CD](https://github.com/docker-mailserver/docker-mailserver/actions)
 - [Extension Delimiters](http://www.postfix.org/postconf.5.html#recipient_delimiter) (`you+extension@example.com` go to `you@example.com`)
@@ -58,8 +60,7 @@ If you have issues, read the full `README` **and** the [documentation][documenta
 
 - 1 vCore
 - 512MB RAM
-
-**Note:** You'll need to deactivate some services like ClamAV to be able to run on a host with 512MB of RAM. Even with 1G RAM you may run into problems without swap, see [FAQ](https://docker-mailserver.github.io/docker-mailserver/edge/faq/#what-system-requirements-are-required-to-run-docker-mailserver-effectively).
+- You'll need to deactivate some services like ClamAV to be able to run on a host with 512MB of RAM. Even with 1G RAM you may run into problems without swap, see [FAQ](https://docker-mailserver.github.io/docker-mailserver/edge/faq/#what-system-requirements-are-required-to-run-docker-mailserver-effectively).
 
 ## Usage
 
@@ -67,39 +68,29 @@ If you have issues, read the full `README` **and** the [documentation][documenta
 
 [CI/CD](https://github.com/docker-mailserver/docker-mailserver/actions) will automatically build, test and push new images to container registries. Currently, the following registries are supported:
 
-- [DockerHub](https://hub.docker.com/repository/docker/mailserver/docker-mailserver)
-- [GitHub Container Registry](https://github.com/orgs/docker-mailserver/packages?repo_name=docker-mailserver)
+1. [DockerHub](https://hub.docker.com/r/mailserver/docker-mailserver)
+2. [GitHub Container Registry](https://github.com/orgs/docker-mailserver/packages?repo_name=docker-mailserver)
 
 All workflows are using the tagging convention listed below. It is subsequently applied to all images.
 
-| Event        | Ref                   | Image Tags                    |
-|--------------|-----------------------|-------------------------------|
-| `push`       | `refs/heads/master`   | `edge`                        |
-| `push tag`   | `refs/tags/[v]1.2.3`  | `1.2.3`, `1.2`, `1`, `latest` |
+| Event              | Image Tags                    |
+|--------------------|-------------------------------|
+| `push` on `master` | `edge`                        |
+| `push tag`         | `1.2.3`, `1.2`, `1`, `latest` |
 
-### Get the tools
+### Get the Tools
 
-Since Docker Mailserver `v10.2.0`, `setup.sh` functionality is included within the Docker image. The external convenience script is no longer required if you prefer using `docker exec <CONTAINER NAME> setup <COMMAND>` instead.
-
-**Note:** If you're using Docker or Docker Compose and are new to `docker-mailserver`, it is recommended to use the script `setup.sh` for convenience.
+Since Docker Mailserver `v10.2.0`, **`setup.sh` functionality is included within the container image**. The external convenience script is no longer required if you prefer using `docker exec <CONTAINER NAME> setup <COMMAND>` instead. **If you're new to `docker-mailserver`**, it is recommended to use the script `setup.sh` for convenience.
 
 ``` BASH
 DMS_GITHUB_URL='https://raw.githubusercontent.com/docker-mailserver/docker-mailserver/master'
 wget "${DMS_GITHUB_URL}/docker-compose.yml"
 wget "${DMS_GITHUB_URL}/mailserver.env"
 wget "${DMS_GITHUB_URL}/setup.sh"
-
 chmod a+x ./setup.sh
-./setup.sh help
 ```
 
-If no `docker-mailserver` container is running, any `./setup.sh` command will check online for the `:latest` image tag (the current stable release), performing a `pull` if necessary followed by running the command in a temporary container.
-
-#### `setup.sh` for `docker-mailserver` version `v10.1.x` and below
-
-If you're using `docker-mailserver` version `v10.1.x` or below, you will need to get `setup.sh` with a specific version. Substitute `<VERSION>` with the `docker-mailserver` release version you're using: `wget https://raw.githubusercontent.com/docker-mailserver/docker-mailserver/<VERSION>/setup.sh`.
-
-### Create a docker-compose environment
+### Create a docker-compose Environment
 
 1. [Install the latest docker-compose](https://docs.docker.com/compose/install/)
 2. Edit `docker-compose.yml` to your liking
@@ -108,6 +99,8 @@ If you're using `docker-mailserver` version `v10.1.x` or below, you will need to
 3. Configure the mailserver container to your liking by editing `mailserver.env` ([**Documentation**](https://docker-mailserver.github.io/docker-mailserver/edge/config/environment/)), but keep in mind this `.env` file:
    - [_only_ basic `VAR=VAL`](https://docs.docker.com/compose/env-file/) is supported (**do not** quote your values!)
    - variable substitution is **not** supported (e.g. :no_entry_sign: `OVERRIDE_HOSTNAME=$HOSTNAME.$DOMAINNAME` :no_entry_sign:)
+
+**Note:** If you're using podman, make sure to read the related [documentation](https://docker-mailserver.github.io/docker-mailserver/edge/config/advanced/podman/)
 
 ### Get up and running
 
@@ -120,12 +113,31 @@ You are able to get a full overview of how the configuration works by either run
 1. `./setup.sh help` which includes the options of `setup.sh`.
 2. `docker run --rm docker.io/mailserver/docker-mailserver:latest setup help` which provides you with all the information on configuration provided "inside" the container itself.
 
+If no `docker-mailserver` container is running, any `./setup.sh` command will check online for the `:latest` image tag (the current _stable_ release), performing a `docker pull ...` if necessary followed by running the command in a temporary container.
+
+``` CONSOLE
+$ ./setup.sh help
+Image 'docker.io/mailserver/docker-mailserver:latest' not found. Pulling ...
+SETUP(1)
+
+NAME
+    setup - 'docker-mailserver' Administration & Configuration script
+...
+
+$ docker run --rm docker.io/mailserver/docker-mailserver:latest setup help
+SETUP(1)
+
+NAME
+    setup - 'docker-mailserver' Administration & Configuration script
+...
+```
+
 #### Starting for the first time
 
-On first start, you will likely see an error stating that there are no mail accounts and the container will exit. You must now do one of two things:
+On first start, you will need to add at least one email account (unless you're using LDAP). You have two minutes to do so, otherwise DMS will shutdown and restart. You can add accounts with the following two methods:
 
-1. Use `setup.sh` to help you: `./setup.sh email add <user@domain> <password>`. You may need  the `-c` option to provide the local path for persisting configuration (_a directory that mounts to `/tmp/docker-mailserver` inside the container_). This will spin up a new container, mount your configuration volume, and create your first account.
-2. Execute the complete command yourself: `docker run --rm -v "${PWD}/docker-data/dms/config/:/tmp/docker-mailserver/" docker.io/mailserver/docker-mailserver setup email add <user@domain> <password>`. Make sure to mount the correct configuration directory.
+1. Use `setup.sh`: `./setup.sh email add <user@domain>`
+2. Run the command directly in the container: `docker exec -ti <CONTAINER NAME> setup email add <user@domain>`
 
 You can then proceed by creating the postmaster alias and by creating DKIM keys.
 
@@ -138,7 +150,22 @@ docker-compose up -d mailserver
 
 # and configure aliases, DKIM and more
 ./setup.sh [-Z] alias add postmaster@<domain> <user@domain>
+```
+
+### Miscellaneous
+
+#### DNS - DKIM
+
+You can (and you should) generate DKIM keys by running
+
+``` BASH
 ./setup.sh [-Z] config dkim
+```
+
+If you want to see detailed usage information, run
+
+``` BASH
+./setup.sh config dkim help
 ```
 
 In case you're using LDAP, the setup looks a bit different as you do not add user accounts directly. Postfix doesn't know your domain(s) and you need to provide it when configuring DKIM:
@@ -146,12 +173,6 @@ In case you're using LDAP, the setup looks a bit different as you do not add use
 ``` BASH
 ./setup.sh config dkim domain '<domain.tld>[,<domain2.tld>]'
 ```
-
-If you want to see detailed usage information, run `./setup.sh config dkim help`.
-
-### Miscellaneous
-
-#### DNS - DKIM
 
 When keys are generated, you can configure your DNS server by just pasting the content of `config/opendkim/keys/domain.tld/mail.txt` to [set up DKIM](https://mxtoolbox.com/dmarc/dkim/setup/how-to-setup-dkim). See the [documentation](https://docker-mailserver.github.io/docker-mailserver/edge/config/best-practices/dkim/) for more details.
 
@@ -161,7 +182,7 @@ If you'd like to change, patch or alter files or behavior of `docker-mailserver`
 
 #### Updating `docker-mailserver`
 
-Make sure to read the [CHANGELOG](https://github.com/docker-mailserver/docker-mailserver/blob/master/CHANGELOG.md) before updating to new versions, to be prepared for possible breaking changes.
+**Make sure to read the [CHANGELOG](https://github.com/docker-mailserver/docker-mailserver/blob/master/CHANGELOG.md)** before updating to new versions, to be prepared for possible breaking changes.
 
 ``` BASH
 docker-compose pull
@@ -239,14 +260,14 @@ services:
       - ENABLE_POSTGREY=1
       - ENABLE_SASLAUTHD=0
       - ONE_DIR=1
-      - DMS_DEBUG=0
     cap_add:
       - NET_ADMIN
-      - SYS_PTRACE
     restart: always
 ```
 
-#### LDAP setup
+### LDAP Setup
+
+**Note** There are currently no LDAP maintainers. If you encounter issues, please raise them in the issue tracker, but be aware that the core maintainers team will most likely not be able to help you. **We would appreciate and we encourage everyone to actively participate in maintaining LDAP-related code by becoming a maintainer!**
 
 ``` YAML
 version: '3.8'
@@ -275,8 +296,8 @@ services:
       - ENABLE_FAIL2BAN=1
       - ENABLE_POSTGREY=1
       - ONE_DIR=1
-      - DMS_DEBUG=0
-      - ENABLE_LDAP=1
+      - ENABLE_LDAP=1 # with the :edge tag, use ACCOUNT_PROVISIONER
+      - ACCOUNT_PROVISIONER=LDAP
       - LDAP_SERVER_HOST=ldap # your ldap container/IP/ServerName
       - LDAP_SEARCH_BASE=ou=people,dc=localhost,dc=localdomain
       - LDAP_BIND_DN=cn=admin,dc=localhost,dc=localdomain
@@ -298,6 +319,5 @@ services:
       - POSTFIX_MESSAGE_SIZE_LIMIT=100000000
     cap_add:
       - NET_ADMIN
-      - SYS_PTRACE
     restart: always
 ```
