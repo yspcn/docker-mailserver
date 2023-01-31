@@ -38,7 +38,7 @@ smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
 smtp_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
 smtpd_tls_mandatory_ciphers = high
 smtpd_tls_mandatory_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
-smtpd_tls_exclude_ciphers = aNULL, SEED, CAMELLIA, RSA+AES
+smtpd_tls_exclude_ciphers = aNULL, SEED, CAMELLIA, RSA+AES, SHA1
 smtpd_tls_dh1024_param_file = /etc/postfix/dhparams.pem
 smtpd_tls_CApath = /etc/ssl/certs
 smtp_tls_CApath = /etc/ssl/certs
@@ -93,8 +93,8 @@ milter_protocol = 6
 milter_default_action = accept
 dkim_milter = inet:localhost:8891
 dmarc_milter = inet:localhost:8893
-smtpd_milters = $dkim_milter,$dmarc_milter
-non_smtpd_milters = $dkim_milter
+smtpd_milters =
+non_smtpd_milters =
 
 # SPF policy settings
 policyd-spf_time_limit = 3600
