@@ -45,7 +45,7 @@ function _initial_setup() {
 
   # Test that certificate files exist for the configured `hostname`:
   _should_have_valid_config "${TARGET_DOMAIN}" 'privkey.pem' 'fullchain.pem'
-  _should_succesfully_negotiate_tls "${TARGET_DOMAIN}"
+  _should_successfully_negotiate_tls "${TARGET_DOMAIN}"
   _should_not_support_fqdn_in_cert 'example.test'
 }
 
@@ -65,7 +65,7 @@ function _initial_setup() {
 
   #test domain has certificate files
   _should_have_valid_config "${TARGET_DOMAIN}" 'privkey.pem' 'fullchain.pem'
-  _should_succesfully_negotiate_tls "${TARGET_DOMAIN}"
+  _should_successfully_negotiate_tls "${TARGET_DOMAIN}"
   _should_not_support_fqdn_in_cert 'mail.example.test'
 }
 
@@ -88,7 +88,7 @@ function _initial_setup() {
   # All of these certs support both FQDNs (`mail.example.test` and `example.test`),
   # Except for the wildcard cert (`*.example.test`), that was created with `example.test` intentionally excluded from SAN.
   # We want to maintain the same FQDN (`mail.example.test`) between the _acme_ecdsa and _acme_rsa tests.
-  local LOCAL_BASE_PATH="${PWD}/test/test-files/ssl/example.test/with_ca/rsa"
+  local LOCAL_BASE_PATH="${PWD}/test/files/ssl/example.test/with_ca/rsa"
 
   function _prepare() {
     # Default `acme.json` for _acme_ecdsa test:
@@ -148,7 +148,7 @@ function _initial_setup() {
     # The difference in support is:
     # - `example.test` should no longer be valid.
     # - `mail.example.test` should remain valid, but also allow any other subdomain/hostname.
-    _should_succesfully_negotiate_tls 'mail.example.test'
+    _should_successfully_negotiate_tls 'mail.example.test'
     _should_support_fqdn_in_cert 'fake.example.test'
     _should_not_support_fqdn_in_cert 'example.test'
   }
@@ -240,8 +240,7 @@ function _copy_to_letsencrypt_storage() {
   FQDN_DIR=$(echo "${DEST}" | cut -d '/' -f1)
   mkdir -p "${TEST_TMP_CONFIG}/letsencrypt/${FQDN_DIR}"
 
-  if ! cp "${PWD}/test/test-files/ssl/${SRC}" "${TEST_TMP_CONFIG}/letsencrypt/${DEST}"
-  then
+  if ! cp "${PWD}/test/files/ssl/${SRC}" "${TEST_TMP_CONFIG}/letsencrypt/${DEST}"; then
     echo "Could not copy cert file '${SRC}'' to '${DEST}'" >&2
     exit 1
   fi

@@ -31,9 +31,16 @@ function teardown_file() { _default_teardown ; }
 
   assert_success
 
-
   # it looks as if someone tries to send mail to another domain outside of DMS
-  _run_in_container_bash "nc 0.0.0.0 25 < /tmp/docker-mailserver-test/email-templates/smtp-only.txt"
+  _send_email \
+    --ehlo mail.origin.test \
+    --protocol SSMTPA \
+    --server mail.origin.test \
+    --from user@origin.test \
+    --to user@destination.test \
+    --auth PLAIN \
+    --auth-user user@origin.test \
+    --auth-password secret
   assert_success
   _wait_for_empty_mail_queue_in_container
 

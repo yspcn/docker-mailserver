@@ -17,8 +17,7 @@
 # This function is internal and should not be used in tests.
 function __initialize_variables() {
   function __check_if_set() {
-    if [[ ${!1+set} != 'set' ]]
-    then
+    if [[ -z ${!1:-} ]]; then
       echo "ERROR: (helper/setup.sh) '${1:?No variable name given to __check_if_set}' is not set" >&2
       exit 1
     fi
@@ -30,8 +29,7 @@ function __initialize_variables() {
     'CONTAINER_NAME'
   )
 
-  for VARIABLE in "${REQUIRED_VARIABLES_FOR_TESTS[@]}"
-  do
+  for VARIABLE in "${REQUIRED_VARIABLES_FOR_TESTS[@]}"; do
     __check_if_set "${VARIABLE}"
   done
 
@@ -64,8 +62,7 @@ function _duplicate_config_for_container() {
   local OUTPUT_FOLDER
   OUTPUT_FOLDER=$(_print_private_config_path "${2}")
 
-  if [[ -z ${OUTPUT_FOLDER} ]]
-  then
+  if [[ -z ${OUTPUT_FOLDER} ]]; then
     echo "'OUTPUT_FOLDER' in '_duplicate_config_for_container' is empty" >&2
     return 1
   fi
@@ -101,11 +98,10 @@ function _init_with_defaults() {
 
   # Common complimentary test files, read-only safe to share across containers:
   export TEST_FILES_CONTAINER_PATH='/tmp/docker-mailserver-test'
-  export TEST_FILES_VOLUME="${REPOSITORY_ROOT}/test/test-files:${TEST_FILES_CONTAINER_PATH}:ro"
+  export TEST_FILES_VOLUME="${REPOSITORY_ROOT}/test/files:${TEST_FILES_CONTAINER_PATH}:ro"
 
   # The config volume cannot be read-only as some data needs to be written at container startup
   #
-  # - two sed failures (unknown lines)
   # - dovecot-quotas.cf (setup-stack.sh:_setup_dovecot_quotas)
   # - postfix-aliases.cf (setup-stack.sh:_setup_postfix_aliases)
   # TODO: Check how many tests need write access. Consider using `docker create` + `docker cp` for easier cleanup.
@@ -183,8 +179,6 @@ function _common_container_create() {
 function _common_container_start() {
   run docker start "${CONTAINER_NAME:?Container name must be set}"
   assert_success
-
-  _wait_for_finished_setup_in_container "${CONTAINER_NAME}"
 }
 
 # Using `create` and `start` instead of only `run` allows to modify
@@ -196,6 +190,8 @@ function _common_container_start() {
 function _common_container_setup() {
   _common_container_create "${@}"
   _common_container_start
+
+  _wait_for_finished_setup_in_container "${CONTAINER_NAME}"
 }
 
 # Can be used in BATS' `teardown_file` function as a default value.

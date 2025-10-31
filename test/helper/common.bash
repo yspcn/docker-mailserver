@@ -18,6 +18,7 @@ function __load_bats_helper() {
   load "${REPOSITORY_ROOT}/test/test_helper/bats-support/load"
   load "${REPOSITORY_ROOT}/test/test_helper/bats-assert/load"
   load "${REPOSITORY_ROOT}/test/helper/sending"
+  load "${REPOSITORY_ROOT}/test/helper/log_and_filtering"
 }
 
 __load_bats_helper
@@ -52,12 +53,10 @@ __load_bats_helper
 #
 # This function is internal and should not be used in tests.
 function __handle_container_name() {
-  if [[ -n ${1:-} ]] && [[ ${1:-} =~ ^dms-test_ ]]
-  then
+  if [[ -n ${1:-} ]] && [[ ${1:-} =~ ^dms-test_ ]]; then
     printf '%s' "${1}"
     return 0
-  elif [[ -n ${CONTAINER_NAME+set} ]]
-  then
+  elif [[ -n ${CONTAINER_NAME:-} ]]; then
     printf '%s' "${CONTAINER_NAME}"
     return 0
   else
@@ -169,8 +168,7 @@ function _repeat_in_container_until_success_or_timeout() {
 function _repeat_until_success_or_timeout() {
   local FATAL_FAILURE_TEST_COMMAND
 
-  if [[ "${1:-}" == "--fatal-test" ]]
-  then
+  if [[ "${1:-}" == "--fatal-test" ]]; then
     FATAL_FAILURE_TEST_COMMAND="${2:?Provided --fatal-test but no command}"
     shift 2
   fi
@@ -178,26 +176,22 @@ function _repeat_until_success_or_timeout() {
   local TIMEOUT=${1:?Timeout duration must be provided}
   shift 1
 
-  if ! [[ "${TIMEOUT}" =~ ^[0-9]+$ ]]
-  then
+  if ! [[ "${TIMEOUT}" =~ ^[0-9]+$ ]]; then
     echo "First parameter for timeout must be an integer, received \"${TIMEOUT}\""
     return 1
   fi
 
   local STARTTIME=${SECONDS}
 
-  until "${@}"
-  do
-    if [[ -n ${FATAL_FAILURE_TEST_COMMAND} ]] && ! eval "${FATAL_FAILURE_TEST_COMMAND}"
-    then
+  until "${@}"; do
+    if [[ -n ${FATAL_FAILURE_TEST_COMMAND} ]] && ! eval "${FATAL_FAILURE_TEST_COMMAND}"; then
       echo "\`${FATAL_FAILURE_TEST_COMMAND}\` failed, early aborting repeat_until_success of \`${*}\`" >&2
       return 1
     fi
 
     sleep 1
 
-    if [[ $(( SECONDS - STARTTIME )) -gt ${TIMEOUT} ]]
-    then
+    if [[ $(( SECONDS - STARTTIME )) -gt ${TIMEOUT} ]]; then
       echo "Timed out on command: ${*}" >&2
       return 1
     fi
@@ -213,20 +207,18 @@ function _run_until_success_or_timeout() {
   local TIMEOUT=${1:?Timeout duration must be provided}
   shift 1
 
-  if [[ ! ${TIMEOUT} =~ ^[0-9]+$ ]]
-  then
+  if [[ ! ${TIMEOUT} =~ ^[0-9]+$ ]]; then
     echo "First parameter for timeout must be an integer, received \"${TIMEOUT}\""
     return 1
   fi
 
   local STARTTIME=${SECONDS}
 
-  until run "${@}" && [[ ${status} -eq 0 ]]
-  do
+  # shellcheck disable=SC2154
+  until run "${@}" && [[ ${status} -eq 0 ]]; do
     sleep 1
 
-    if (( SECONDS - STARTTIME > TIMEOUT ))
-    then
+    if (( SECONDS - STARTTIME > TIMEOUT )); then
       echo "Timed out on command: ${*}" >&2
       return 1
     fi
@@ -236,7 +228,6 @@ function _run_until_success_or_timeout() {
 # ? << Functions about executing commands with timeouts
 # ! -------------------------------------------------------------------
 # ? >> Functions to wait until a condition is met
-
 
 # Wait until a port is ready.
 #
@@ -260,17 +251,15 @@ function _wait_for_smtp_port_in_container() {
   _wait_for_tcp_port_in_container 25
 }
 
-# Wait until the SMPT port (25) can respond.
+# Wait until the SMTP port (25) can respond.
 #
 # @param ${1} = name of the container [OPTIONAL]
 function _wait_for_smtp_port_in_container_to_respond() {
   local CONTAINER_NAME=$(__handle_container_name "${1:-}")
 
   local COUNT=0
-  until [[ $(_exec_in_container timeout 10 /bin/bash -c 'echo QUIT | nc localhost 25') == *'221 2.0.0 Bye'* ]]
-  do
-    if [[ ${COUNT} -eq 20 ]]
-    then
+  until [[ $(_exec_in_container timeout 10 /bin/bash -c 'echo QUIT | nc localhost 25') == *'221 2.0.0 Bye'* ]]; do
+    if [[ ${COUNT} -eq 20 ]]; then
       echo "Unable to receive a valid response from 'nc localhost 25' within 20 seconds"
       return 1
     fi
@@ -353,18 +342,13 @@ function _add_mail_account_then_wait_until_ready() {
   local MAIL_PASS="${2:-password_not_relevant_to_test}"
   local CONTAINER_NAME=$(__handle_container_name "${3:-}")
 
+  # Required to detect a new account and create the maildir:
+  _wait_for_service changedetector "${CONTAINER_NAME}"
+
   _run_in_container setup email add "${MAIL_ACCOUNT}" "${MAIL_PASS}"
   assert_success
 
   _wait_until_account_maildir_exists "${MAIL_ACCOUNT}"
-}
-
-# Assert that the number of lines output by a previous command matches the given
-# amount (${1}). `lines` is a special BATS variable updated via `run`.
-#
-# @param ${1} = number of lines that the output should have
-function _should_output_number_of_lines() {
-  assert_equal "${#lines[@]}" "${1:?Number of lines not provided}"
 }
 
 # Reloads the postfix service.
@@ -378,7 +362,6 @@ function _reload_postfix() {
   _exec_in_container touch -d '2 seconds ago' /etc/postfix/main.cf
   _exec_in_container postfix reload
 }
-
 
 # Get the IP of the container (${1}).
 #
@@ -400,72 +383,54 @@ function _container_is_running() {
 #
 # @param ${1} = directory
 # @param ${2} = number of files that should be in ${1}
-# @param ${3} = container name [OPTIONAL]
-function _count_files_in_directory_in_container()
-{
+function _count_files_in_directory_in_container() {
   local DIRECTORY=${1:?No directory provided}
   local NUMBER_OF_LINES=${2:?No line count provided}
-  local CONTAINER_NAME=$(__handle_container_name "${3:-}")
 
-  _run_in_container_bash "[[ -d ${DIRECTORY} ]]"
-  assert_success
-
-  _run_in_container_bash "find ${DIRECTORY} -maxdepth 1 -type f -printf 'x\n'"
-  assert_success
+  _should_have_content_in_directory "${DIRECTORY}" '-type f'
   _should_output_number_of_lines "${NUMBER_OF_LINES}"
 }
 
-# Filters a service's logs (under `/var/log/supervisor/<SERVICE>.log`) given
-# a specific string.
+# Checks if the directory exists and then list the top-level content.
 #
-# @param ${1} = service name
-# @param ${2} = string to filter by
-# @param ${3} = container name [OPTIONAL]
-#
-# ## Attention
-#
-# The string given to this function is interpreted by `grep -E`, i.e.
-# as a regular expression. In case you use characters that are special
-# in regular expressions, you need to escape them!
-function _filter_service_log() {
-  local SERVICE=${1:?Service name must be provided}
-  local STRING=${2:?String to match must be provided}
-  local CONTAINER_NAME=$(__handle_container_name "${3:-}")
+# @param ${1} = directory
+# @param ${2} = Additional options to `find`
+function _should_have_content_in_directory() {
+  local DIRECTORY=${1:?No directory provided}
+  local FIND_OPTIONS=${2:-}
 
-  _run_in_container grep -E "${STRING}" "/var/log/supervisor/${SERVICE}.log"
-}
-
-# Like `_filter_service_log` but asserts that the string was found.
-#
-# @param ${1} = service name
-# @param ${2} = string to filter by
-# @param ${3} = container name [OPTIONAL]
-#
-# ## Attention
-#
-# The string given to this function is interpreted by `grep -E`, i.e.
-# as a regular expression. In case you use characters that are special
-# in regular expressions, you need to escape them!
-function _service_log_should_contain_string() {
-  local SERVICE=${1:?Service name must be provided}
-  local STRING=${2:?String to match must be provided}
-  local CONTAINER_NAME=$(__handle_container_name "${3:-}")
-
-  _filter_service_log "${SERVICE}" "${STRING}"
+  _run_in_container_bash "[[ -d ${DIRECTORY} ]] && find ${DIRECTORY} -mindepth 1 -maxdepth 1 ${FIND_OPTIONS} -printf '%f\n'"
   assert_success
 }
 
-# Filters the mail log for lines that belong to a certain email identified
-# by its ID. You can obtain the ID of an email you want to send by using
-# `_send_mail_and_get_id`.
+# A simple wrapper for netcat (`nc`). This is useful when sending
+# "raw" e-mails or doing IMAP-related work.
 #
-# @param ${1} = email ID
-# @param ${2} = container name [OPTIONAL]
-function _print_mail_log_for_id() {
-  local MAIL_ID=${1:?Mail ID must be provided}
-  local CONTAINER_NAME=$(__handle_container_name "${2:-}")
+# @param ${1} = the file that is given to `nc`
+# @param ${1} = custom parameters for `nc` [OPTIONAL] (default: 0.0.0.0 25)
+function _nc_wrapper() {
+  local FILE=${1:?Must provide name of template file}
+  local NC_PARAMETERS=${2:-0.0.0.0 25}
 
-  _run_in_container grep -F "${MAIL_ID}" /var/log/mail.log
+  [[ -v CONTAINER_NAME ]] || return 1
+
+  _run_in_container_bash "nc ${NC_PARAMETERS} < /tmp/docker-mailserver-test/${FILE}"
+}
+
+# A simple wrapper for a test that checks whether a file exists.
+#
+# @param ${1} = the path to the file inside the container
+function _file_exists_in_container() {
+  _run_in_container_bash "[[ -f ${1} ]]"
+  assert_success
+}
+
+# A simple wrapper for a test that checks whether a file does not exist.
+#
+# @param ${1} = the path to the file (that should not exists) inside the container
+function _file_does_not_exist_in_container() {
+  _run_in_container_bash "[[ -f ${1} ]]"
+  assert_failure
 }
 
 # ? << Miscellaneous helper functions

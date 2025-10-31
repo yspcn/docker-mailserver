@@ -42,22 +42,18 @@ RESET=$(echo -ne   '\e[0m')
 # If the first argument is not set or invalid, an error
 # message is logged. Likewise when the second argument
 # is missing. Both failures will return with exit code '1'.
-function _log
-{
-  if [[ -z ${1+set} ]]
-  then
+function _log() {
+  if [[ -z ${1:-} ]]; then
     _log 'error' "Call to '_log' is missing a valid log level"
     return 1
   fi
 
-  if [[ -z ${2+set} ]]
-  then
+  if [[ -z ${2:-} ]]; then
     _log 'error' "Call to '_log' is missing a message to log"
     return 1
   fi
 
-  local LEVEL_AS_INT
-  local MESSAGE="${RESET}["
+  local LEVEL_AS_INT LOG_COLOR LOG_LEVEL_NAME MESSAGE
 
   case "$(_get_log_level_or_default)" in
     ( 'trace' ) LEVEL_AS_INT=5 ;;
@@ -70,27 +66,35 @@ function _log
   case "${1}" in
     ( 'trace' )
       [[ ${LEVEL_AS_INT} -ge 5 ]] || return 0
-      MESSAGE+="  ${CYAN}TRACE  "
+      LOG_COLOR='CYAN'
+      LOG_LEVEL_NAME='TRACE'
       ;;
 
     ( 'debug' )
       [[ ${LEVEL_AS_INT} -ge 4 ]] || return 0
-      MESSAGE+="  ${PURPLE}DEBUG  "
+      LOG_COLOR='PURPLE'
+      LOG_LEVEL_NAME='DEBUG'
       ;;
 
     ( 'info' )
       [[ ${LEVEL_AS_INT} -ge 3 ]] || return 0
-      MESSAGE+="   ${BLUE}INF   "
+      LOG_COLOR='BLUE'
+      # the whitespace is intentional (for alignment purposes)
+      LOG_LEVEL_NAME='INFO '
       ;;
 
     ( 'warn' )
       [[ ${LEVEL_AS_INT} -ge 2 ]] || return 0
-      MESSAGE+=" ${LYELLOW}WARNING "
+      LOG_COLOR='LYELLOW'
+      # the whitespace is intentional (for alignment purposes)
+      LOG_LEVEL_NAME='WARN '
       ;;
 
     ( 'error' )
       [[ ${LEVEL_AS_INT} -ge 1 ]] || return 0
-      MESSAGE+="  ${LRED}ERROR  " ;;
+      LOG_COLOR='LRED'
+      LOG_LEVEL_NAME='ERROR'
+      ;;
 
     ( * )
       _log 'error' "Call to '_log' with invalid log level argument '${1}'"
@@ -98,34 +102,22 @@ function _log
       ;;
   esac
 
-  MESSAGE+="${RESET}]  ${2}"
+  MESSAGE="$(date --rfc-3339='seconds') ${!LOG_COLOR}${LOG_LEVEL_NAME}${RESET} $(basename "${0}"): ${2}"
 
-  if [[ ${1} =~ ^(warn|error)$ ]]
-  then
-    echo -e "${MESSAGE}" >&2
-  else
-    echo -e "${MESSAGE}"
-  fi
-}
-
-# Like `_log` but adds a timestamp in front of the message.
-function _log_with_date
-{
-  _log "${1}" "$(date '+%Y-%m-%d %H:%M:%S')  ${2}"
+  # All logs should go through to STDERR,
+  # STDOUT is only appropriate for expected program output
+  echo -e "${MESSAGE}" >&2
 }
 
 # Get the value of the environment variable LOG_LEVEL if
 # it is set. Otherwise, try to query the common environment
 # variables file. If this does not yield a value either,
 # use the default log level.
-function _get_log_level_or_default
-{
-  if [[ -n ${LOG_LEVEL+set} ]]
-  then
+function _get_log_level_or_default() {
+  if [[ -n ${LOG_LEVEL:-} ]]; then
     echo "${LOG_LEVEL}"
-  elif [[ -e /etc/dms-settings ]]
-  then
-    grep "^LOG_LEVEL=" /etc/dms-settings | cut -d "'" -f 2
+  elif [[ -e /etc/dms-settings ]] && grep -q -E "^LOG_LEVEL='[a-z]+'" /etc/dms-settings; then
+    grep '^LOG_LEVEL=' /etc/dms-settings | cut -d "'" -f 2
   else
     echo 'info'
   fi
@@ -133,7 +125,6 @@ function _get_log_level_or_default
 
 # This function checks whether the log level is the one
 # provided as the first argument.
-function _log_level_is
-{
+function _log_level_is() {
   [[ $(_get_log_level_or_default) =~ ^${1}$ ]]
 }

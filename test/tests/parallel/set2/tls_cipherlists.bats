@@ -17,7 +17,7 @@ function setup_file() {
 
   # Contains various certs for testing TLS support (read-only):
   export TLS_CONFIG_VOLUME
-  TLS_CONFIG_VOLUME="${PWD}/test/test-files/ssl/${TEST_DOMAIN}/:/config/ssl/:ro"
+  TLS_CONFIG_VOLUME="${PWD}/test/files/ssl/${TEST_DOMAIN}/:/config/ssl/:ro"
 
   # Used for connecting testssl and DMS containers via network name `TEST_DOMAIN`:
   # NOTE: If the network already exists, the test will fail to start
@@ -25,7 +25,7 @@ function setup_file() {
 
   # Pull `testssl.sh` image in advance to avoid it interfering with the `run` captured output.
   # Only interferes (potential test failure) with `assert_output` not `assert_success`?
-  docker pull drwetter/testssl.sh:3.1dev
+  docker pull ghcr.io/testssl/testssl.sh:3.2
 
   # Only used in `_should_support_expected_cipherlists()` to set a storage location for `testssl.sh` JSON output:
   # `${BATS_TMPDIR}` maps to `/tmp`: https://bats-core.readthedocs.io/en/v1.8.2/writing-tests.html#special-variables
@@ -76,8 +76,7 @@ function _configure_and_run_dms_container() {
   local ALT_KEY_TYPE=$3 # Optional parameter
 
   export TEST_VARIANT="${TLS_LEVEL}-${KEY_TYPE}"
-  if [[ -n ${ALT_KEY_TYPE} ]]
-  then
+  if [[ -n ${ALT_KEY_TYPE} ]]; then
     TEST_VARIANT+="-${ALT_KEY_TYPE}"
   fi
 
@@ -98,8 +97,7 @@ function _configure_and_run_dms_container() {
     --env SSL_KEY_PATH="/config/ssl/with_ca/ecdsa/key.${KEY_TYPE}.pem"
   )
 
-  if [[ -n ${ALT_KEY_TYPE} ]]
-  then
+  if [[ -n ${ALT_KEY_TYPE} ]]; then
     CUSTOM_SETUP_ARGUMENTS+=(
       --env SSL_ALT_CERT_PATH="/config/ssl/with_ca/ecdsa/cert.${ALT_KEY_TYPE}.pem"
       --env SSL_ALT_KEY_PATH="/config/ssl/with_ca/ecdsa/key.${ALT_KEY_TYPE}.pem"
@@ -113,7 +111,7 @@ function _configure_and_run_dms_container() {
 
 function _should_support_expected_cipherlists() {
   # Make a directory with test user ownership. Avoids Docker creating this with root ownership.
-  # TODO: Can switch to filename prefix for JSON output when this is resolved: https://github.com/drwetter/testssl.sh/issues/1845
+  # TODO: Can switch to filename prefix for JSON output when this is resolved: https://github.com/testssl/testssl.sh/issues/1845
   local RESULTS_PATH="${TLS_RESULTS_DIR}/${TEST_VARIANT}"
   mkdir -p "${RESULTS_PATH}"
 
@@ -153,11 +151,12 @@ function _collect_cipherlists() {
     --mode parallel
     --overwrite
     --preference
+    --openssl /usr/bin/openssl
   )
   # NOTE: Batch testing ports via `--file` doesn't properly bubble up failure.
   # If the failure for a test is misleading consider testing a single port with:
   # local TESTSSL_CMD=(--quiet --jsonfile-pretty "/output/port_${PORT}.json" --starttls smtp "${TEST_DOMAIN}:${PORT}")
-  # TODO: Can use `jq` to check for failure when this is resolved: https://github.com/drwetter/testssl.sh/issues/1844
+  # TODO: Can use `jq` to check for failure when this is resolved: https://github.com/testssl/testssl.sh/issues/1844
 
   # `--user "<uid>:<gid>"` is a workaround: Avoids `permission denied` write errors for json output, uses `id` to match user uid & gid.
   run docker run --rm \
@@ -167,7 +166,7 @@ function _collect_cipherlists() {
     --volume "${TLS_CONFIG_VOLUME}" \
     --volume "${RESULTS_PATH}:/output" \
     --workdir "/output" \
-    drwetter/testssl.sh:3.1dev "${TESTSSL_CMD[@]}"
+    ghcr.io/testssl/testssl.sh:3.2 "${TESTSSL_CMD[@]}"
 
   assert_success
 }
@@ -198,9 +197,8 @@ function compare_cipherlist() {
 function get_cipherlist() {
   local TLS_VERSION=$1
 
-  if [[ ${TLS_VERSION} == "TLSv1_3" ]]
-  then
-    # TLS v1.3 cipher suites are not user defineable and not unique to the available certificate(s).
+  if [[ ${TLS_VERSION} == "TLSv1_3" ]]; then
+    # TLS v1.3 cipher suites are not user definable and not unique to the available certificate(s).
     # They do not support server enforced order either.
     echo '"TLS_AES_256_GCM_SHA384 TLS_CHACHA20_POLY1305_SHA256 TLS_AES_128_GCM_SHA256"'
   else

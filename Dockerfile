@@ -1,17 +1,17 @@
 # syntax=docker.io/docker/dockerfile:1
 
-# This Dockerfile provides two stages: stage-base and stage-final
+# This Dockerfile provides four stages: stage-base, stage-compile, stage-main and stage-final
 # This is in preparation for more granular stages (eg ClamAV and Fail2Ban split into their own)
 
-#
-# Base stage provides all packages, config, and adds scripts
-#
-
-FROM docker.io/debian:11-slim AS stage-base
-
 ARG DEBIAN_FRONTEND=noninteractive
-ARG DOVECOT_COMMUNITY_REPO=1
+ARG DOVECOT_COMMUNITY_REPO=0
 ARG LOG_LEVEL=trace
+
+FROM docker.io/debian:12-slim AS stage-base
+
+ARG DEBIAN_FRONTEND
+ARG DOVECOT_COMMUNITY_REPO
+ARG LOG_LEVEL
 
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -25,10 +25,34 @@ RUN <<EOF
   adduser --quiet --system --group --disabled-password --home /var/lib/clamav --no-create-home --uid 200 clamav
 EOF
 
-COPY target/scripts/build/* /build/
+COPY target/scripts/build/packages.sh /build/
 COPY target/scripts/helpers/log.sh /usr/local/bin/helpers/log.sh
 
-RUN /bin/bash /build/packages.sh
+RUN /bin/bash /build/packages.sh && rm -r /build
+
+# -----------------------------------------------
+# --- Compile deb packages ----------------------
+# -----------------------------------------------
+
+FROM stage-base AS stage-compile
+
+ARG LOG_LEVEL
+ARG DEBIAN_FRONTEND
+
+COPY target/scripts/build/compile.sh /build/
+RUN /bin/bash /build/compile.sh
+
+#
+# main stage provides all packages, config, and adds scripts
+#
+
+FROM stage-base AS stage-main
+
+ARG DEBIAN_FRONTEND
+ARG LOG_LEVEL
+
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
 
 # -----------------------------------------------
 # --- ClamAV & FeshClam -------------------------
@@ -38,9 +62,12 @@ RUN /bin/bash /build/packages.sh
 # which would require an extra memory of 500MB+ during an image build.
 # When using `COPY --link`, the `--chown` option is only compatible with numeric ID values.
 # hadolint ignore=DL3021
-COPY --link --chown=200 --from=docker.io/clamav/clamav:latest /var/lib/clamav /var/lib/clamav
+COPY --link --chown=200 --from=docker.io/clamav/clamav-debian:latest /var/lib/clamav /var/lib/clamav
 
 RUN <<EOF
+  # `COPY --link --chown=200` has a bug when built by the buildx docker-container driver.
+  # Restore ownership of parent dirs (Bug: https://github.com/moby/buildkit/issues/3912)
+  chown root:root /var /var/lib
   echo '0 */6 * * * clamav /usr/bin/freshclam --quiet' >/etc/cron.d/clamav-freshclam
   chmod 644 /etc/clamav/freshclam.conf
   sedfile -i 's/Foreground false/Foreground true/g' /etc/clamav/clamd.conf
@@ -53,22 +80,14 @@ EOF
 # --- Dovecot -----------------------------------
 # -----------------------------------------------
 
-COPY target/dovecot/auth-passwdfile.inc target/dovecot/auth-master.inc target/dovecot/??-*.conf /etc/dovecot/conf.d/
-COPY target/dovecot/sieve/ /etc/dovecot/sieve/
+# install fts_xapian plugin
+
+COPY --from=stage-compile dovecot-fts-xapian-*.deb /
+RUN dpkg -i /dovecot-fts-xapian-*.deb && rm /dovecot-fts-xapian-*.deb
+
+COPY target/dovecot/*.inc target/dovecot/*.conf /etc/dovecot/conf.d/
 COPY target/dovecot/dovecot-purge.cron /etc/cron.d/dovecot-purge.disabled
 RUN chmod 0 /etc/cron.d/dovecot-purge.disabled
-WORKDIR /usr/share/dovecot
-
-# hadolint ignore=SC2016,SC2086,SC2069
-RUN <<EOF
-  sedfile -i -e 's/include_try \/usr\/share\/dovecot\/protocols\.d/include_try \/etc\/dovecot\/protocols\.d/g' /etc/dovecot/dovecot.conf
-  sedfile -i -e 's/#mail_plugins = \$mail_plugins/mail_plugins = \$mail_plugins sieve/g' /etc/dovecot/conf.d/15-lda.conf
-  sedfile -i -e 's/^.*lda_mailbox_autocreate.*/lda_mailbox_autocreate = yes/g' /etc/dovecot/conf.d/15-lda.conf
-  sedfile -i -e 's/^.*lda_mailbox_autosubscribe.*/lda_mailbox_autosubscribe = yes/g' /etc/dovecot/conf.d/15-lda.conf
-  sedfile -i -e 's/^.*postmaster_address.*/postmaster_address = '${POSTMASTER_ADDRESS:="postmaster@domain.com"}'/g' /etc/dovecot/conf.d/15-lda.conf
-  mkdir -p /usr/lib/dovecot/sieve-pipe /usr/lib/dovecot/sieve-filter /usr/lib/dovecot/sieve-global
-  chmod 755 -R /usr/lib/dovecot/sieve-pipe /usr/lib/dovecot/sieve-filter /usr/lib/dovecot/sieve-global
-EOF
 
 # -----------------------------------------------
 # --- Rspamd ------------------------------------
@@ -77,10 +96,18 @@ EOF
 COPY target/rspamd/local.d/ /etc/rspamd/local.d/
 
 # -----------------------------------------------
+# --- OAUTH2 ------------------------------------
+# -----------------------------------------------
+
+COPY target/dovecot/dovecot-oauth2.conf.ext /etc/dovecot
+COPY target/dovecot/auth-oauth2.conf.ext /etc/dovecot/conf.d
+
+# -----------------------------------------------
 # --- LDAP & SpamAssassin's Cron ----------------
 # -----------------------------------------------
 
 COPY target/dovecot/dovecot-ldap.conf.ext /etc/dovecot
+COPY target/dovecot/auth-ldap.conf.ext /etc/dovecot/conf.d
 COPY \
   target/postfix/ldap-users.cf \
   target/postfix/ldap-groups.cf \
@@ -91,9 +118,10 @@ COPY \
 
 # hadolint ignore=SC2016
 RUN <<EOF
-  sedfile -i -r 's/^(CRON)=0/\1=1/g' /etc/default/spamassassin
+  # ref: https://github.com/docker-mailserver/docker-mailserver/pull/3403#discussion_r1306282387
+  echo 'CRON=1' >/etc/default/spamassassin
   sedfile -i -r 's/^\$INIT restart/supervisorctl restart amavis/g' /etc/spamassassin/sa-update-hooks.d/amavisd-new
-  mkdir -p /etc/spamassassin/kam/
+  mkdir /etc/spamassassin/kam/
   curl -sSfLo /etc/spamassassin/kam/kam.sa-channels.mcgrail.com.key https://mcgrail.com/downloads/kam.sa-channels.mcgrail.com.key
 EOF
 
@@ -103,15 +131,14 @@ EOF
 
 COPY target/postsrsd/postsrsd /etc/default/postsrsd
 COPY target/postgrey/postgrey /etc/default/postgrey
-COPY target/postgrey/postgrey.init /etc/init.d/postgrey
 RUN <<EOF
-  chmod 755 /etc/init.d/postgrey
   mkdir /var/run/postgrey
   chown postgrey:postgrey /var/run/postgrey
-  curl -Lsfo /etc/postgrey/whitelist_clients https://postgrey.schweikert.ch/pub/postgrey_whitelist_clients
+  curl -Lsfo /etc/postgrey/whitelist_clients https://raw.githubusercontent.com/schweikert/postgrey/master/postgrey_whitelist_clients
 EOF
 
 COPY target/amavis/conf.d/* /etc/amavis/conf.d/
+COPY target/amavis/postfix-amavis.cf /etc/dms/postfix/master.d/
 RUN <<EOF
   sedfile -i -r 's/#(@|   \\%)bypass/\1bypass/g' /etc/amavis/conf.d/15-content_filter_mode
   # add users clamav and amavis to each others group
@@ -124,21 +151,6 @@ RUN <<EOF
   chmod 644 /etc/amavis/conf.d/*
 EOF
 
-# overcomplication necessary for CI
-RUN <<EOF
-  for _ in {1..10}; do
-    su - amavis -c "razor-admin -create"
-    sleep 3
-    if su - amavis -c "razor-admin -register"; then
-      EC=0
-      break
-    else
-      EC=${?}
-    fi
-  done
-  exit ${EC}
-EOF
-
 # -----------------------------------------------
 # --- Fail2Ban, DKIM & DMARC --------------------
 # -----------------------------------------------
@@ -146,10 +158,8 @@ EOF
 COPY target/fail2ban/jail.local /etc/fail2ban/jail.local
 COPY target/fail2ban/fail2ban.d/fixes.local /etc/fail2ban/fail2ban.d/fixes.local
 RUN <<EOF
-  ln -s /var/log/mail/mail.log /var/log/mail.log
-  # disable sshd jail
-  rm /etc/fail2ban/jail.d/defaults-debian.conf
-  mkdir /var/run/fail2ban
+  ln -s  /var/log/mail/mail.log     /var/log/mail.log
+  ln -sf /var/log/mail/fail2ban.log /var/log/fail2ban.log
 EOF
 
 COPY target/opendkim/opendkim.conf /etc/opendkim.conf
@@ -159,15 +169,26 @@ COPY target/opendmarc/opendmarc.conf /etc/opendmarc.conf
 COPY target/opendmarc/default-opendmarc /etc/default/opendmarc
 COPY target/opendmarc/ignore.hosts /etc/opendmarc/ignore.hosts
 
-# -----------------------------------------------
-# --- Fetchmail, Postfix & Let'sEncrypt ---------
-# -----------------------------------------------
+# --------------------------------------------------
+# --- postfix-mta-sts-daemon -----------------------
+# --------------------------------------------------
+COPY target/mta-sts-daemon/mta-sts-daemon.yml /etc/mta-sts-daemon.yml
+RUN <<EOF
+  mkdir /var/run/mta-sts
+  chown -R _mta-sts:root /var/run/mta-sts
+EOF
+
+# --------------------------------------------------
+# --- Fetchmail, Getmail, Postfix & Let'sEncrypt ---
+# --------------------------------------------------
 
 # Remove invalid URL from SPF message
 # https://bugs.launchpad.net/spf-engine/+bug/1896912
 RUN echo 'Reason_Message = Message {rejectdefer} due to: {spf}.' >>/etc/postfix-policyd-spf-python/policyd-spf.conf
 
 COPY target/fetchmail/fetchmailrc /etc/fetchmailrc_general
+COPY target/getmail/getmailrc_general /etc/getmailrc_general
+COPY target/getmail/getmail-service.sh /usr/local/bin/
 COPY target/postfix/main.cf target/postfix/master.cf /etc/postfix/
 
 # DH parameters for DHE cipher suites, ffdhe4096 is the official standard 4096-bit DH params now part of TLS 1.3
@@ -194,7 +215,7 @@ EOF
 
 RUN <<EOF
   sedfile -i -r "/^#?compress/c\compress\ncopytruncate" /etc/logrotate.conf
-  mkdir -p /var/log/mail
+  mkdir /var/log/mail
   chown syslog:root /var/log/mail
   touch /var/log/mail/clamav.log
   chown -R clamav:root /var/log/mail/clamav.log
@@ -210,13 +231,15 @@ RUN <<EOF
   sedfile -i -r '/postrotate/,/endscript/d' /etc/logrotate.d/clamav-freshclam
   sedfile -i -r 's|/var/log/mail|/var/log/mail/mail|g' /etc/logrotate.d/rsyslog
   sedfile -i -r '/\/var\/log\/mail\/mail.log/d' /etc/logrotate.d/rsyslog
+  sedfile -i    's|^/var/log/fail2ban.log {$|/var/log/mail/fail2ban.log {|' /etc/logrotate.d/fail2ban
   # prevent syslog logrotate warnings
   sedfile -i -e 's/\(printerror "could not determine current runlevel"\)/#\1/' /usr/sbin/invoke-rc.d
   sedfile -i -e 's/^\(POLICYHELPER=\).*/\1/' /usr/sbin/invoke-rc.d
   # prevent syslog warning about imklog permissions
   sedfile -i -e 's/^module(load=\"imklog\")/#module(load=\"imklog\")/' /etc/rsyslog.conf
-  # prevent email when /sbin/init or init system is not existing
-  sedfile -i -e 's|invoke-rc.d rsyslog rotate > /dev/null|/usr/bin/supervisorctl signal hup rsyslog >/dev/null|g' /usr/lib/rsyslog/rsyslog-rotate
+  # this change is for our alternative process manager rather than part of
+  # a fix related to the change preceding it.
+  echo -e '\n/usr/bin/supervisorctl signal hup rsyslog >/dev/null' >>/usr/lib/rsyslog/rsyslog-rotate
 EOF
 
 # -----------------------------------------------
@@ -224,6 +247,7 @@ EOF
 # -----------------------------------------------
 
 COPY target/logwatch/maillog.conf /etc/logwatch/conf/logfiles/maillog.conf
+COPY target/logwatch/ignore.conf /etc/logwatch/conf/ignore.conf
 
 # -----------------------------------------------
 # --- Supervisord & Start -----------------------
@@ -241,31 +265,26 @@ RUN <<EOF
   rm -rf /usr/share/man/*
   rm -rf /usr/share/doc/*
   update-locale
-  rm /etc/postsrsd.secret
-  rm /etc/cron.daily/00logwatch
 EOF
-
-COPY VERSION /
 
 COPY \
   target/bin/* \
   target/scripts/*.sh \
   target/scripts/startup/*.sh \
-  target/scripts/wrapper/*.sh \
-  target/docker-configomat/configomat.sh \
   /usr/local/bin/
 
 RUN chmod +x /usr/local/bin/*
 
 COPY target/scripts/helpers /usr/local/bin/helpers
+COPY target/scripts/startup/setup.d /usr/local/bin/setup.d
 
 #
 # Final stage focuses only on image config
 #
 
-FROM stage-base AS stage-final
+FROM stage-main AS stage-final
+ARG DMS_RELEASE=edge
 ARG VCS_REVISION=unknown
-ARG VCS_VERSION=edge
 
 WORKDIR /
 EXPOSE 25 587 143 465 993 110 995 4190
@@ -289,11 +308,12 @@ LABEL org.opencontainers.image.title="docker-mailserver"
 LABEL org.opencontainers.image.vendor="The Docker Mailserver Organization"
 LABEL org.opencontainers.image.authors="The Docker Mailserver Organization on GitHub"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.description="A fullstack but simple mail server (SMTP, IMAP, LDAP, Antispam, Antivirus, etc.). Only configuration files, no SQL database."
+LABEL org.opencontainers.image.description="A fullstack but simple mail server (SMTP, IMAP, LDAP, Anti-spam, Anti-virus, etc.). Only configuration files, no SQL database."
 LABEL org.opencontainers.image.url="https://github.com/docker-mailserver"
 LABEL org.opencontainers.image.documentation="https://github.com/docker-mailserver/docker-mailserver/blob/master/README.md"
 LABEL org.opencontainers.image.source="https://github.com/docker-mailserver/docker-mailserver"
 # ARG invalidates cache when it is used by a layer (implicitly affects RUN)
 # Thus to maximize cache, keep these lines last:
 LABEL org.opencontainers.image.revision=${VCS_REVISION}
-LABEL org.opencontainers.image.version=${VCS_VERSION}
+LABEL org.opencontainers.image.version=${DMS_RELEASE}
+ENV DMS_RELEASE=${DMS_RELEASE}

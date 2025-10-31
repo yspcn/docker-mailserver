@@ -5,8 +5,7 @@
 # - DATABASE_DOVECOT_MASTERS
 
 # Logic to perform for requested operations handled here:
-function _manage_accounts
-{
+function _manage_accounts() {
   local ACTION=${1}
   local DATABASE=${2}
   local MAIL_ACCOUNT=${3}
@@ -14,6 +13,7 @@ function _manage_accounts
   local PASSWD=${4}
 
   _arg_expect_mail_account
+  _arg_check_mail_account
 
   case "${ACTION}" in
     ( 'create' | 'update' )
@@ -56,12 +56,11 @@ function _manage_accounts_dovecotmaster_delete { _manage_accounts 'delete' "${DA
 #
 
 # These validation helpers rely on:
-# - Exteral vars to be declared prior to calling them (MAIL_ACCOUNT, PASSWD, DATABASE).
+# - External vars to be declared prior to calling them (MAIL_ACCOUNT, PASSWD, DATABASE).
 # - Calling external method '__usage' as part of error handling.
 
 # Also used by setquota, delquota
-function _arg_expect_mail_account
-{
+function _arg_expect_mail_account() {
   [[ -z ${MAIL_ACCOUNT} ]] && { __usage ; _exit_with_error 'No account specified' ; }
 
   # Dovecot Master accounts are validated (they are not email addresses):
@@ -71,30 +70,42 @@ function _arg_expect_mail_account
   [[ ${MAIL_ACCOUNT} =~ .*\@.* ]] || { __usage ; _exit_with_error "'${MAIL_ACCOUNT}' should include the domain (eg: user@example.com)" ; }
 }
 
-function _account_should_not_exist_yet
-{
+# Checks the mail account string, e.g. on uppercase letters.
+function _arg_check_mail_account() {
+  if grep -q -E '[[:upper:]]+' <<< "${MAIL_ACCOUNT}"; then
+    local MAIL_ACCOUNT_NORMALIZED=${MAIL_ACCOUNT,,}
+    _log 'warn' "Mail account '${MAIL_ACCOUNT}' has uppercase letters and will be normalized to '${MAIL_ACCOUNT_NORMALIZED}'"
+    MAIL_ACCOUNT=${MAIL_ACCOUNT_NORMALIZED}
+  fi
+}
+
+function _account_should_not_exist_yet() {
   __account_already_exists && _exit_with_error "'${MAIL_ACCOUNT}' already exists"
+  if [[ -f ${DATABASE_VIRTUAL} ]] && grep -q "^${MAIL_ACCOUNT}" "${DATABASE_VIRTUAL}"; then
+    _exit_with_error "'${MAIL_ACCOUNT}' is already defined as an alias"
+  fi
 }
 
 # Also used by delmailuser, setquota, delquota
-function _account_should_already_exist
-{
+function _account_should_already_exist() {
   ! __account_already_exists && _exit_with_error "'${MAIL_ACCOUNT}' does not exist"
 }
 
-function __account_already_exists
-{
+function __account_already_exists() {
   local DATABASE=${DATABASE:-"${DATABASE_ACCOUNTS}"}
   _db_has_entry_with_key "${MAIL_ACCOUNT}" "${DATABASE}"
 }
 
 # Also used by addsaslpassword
-function _password_request_if_missing
-{
-  if [[ -z ${PASSWD} ]]
-  then
+function _password_request_if_missing() {
+  local PASSWD_CONFIRM
+  if [[ -z ${PASSWD} ]]; then
     read -r -s -p 'Enter Password: ' PASSWD
     echo
     [[ -z ${PASSWD} ]] && _exit_with_error 'Password must not be empty'
+
+    read -r -s -p 'Confirm Password: ' PASSWD_CONFIRM
+    echo
+    [[ ${PASSWD} != "${PASSWD_CONFIRM}" ]] && _exit_with_error 'Passwords do not match!'
   fi
 }
